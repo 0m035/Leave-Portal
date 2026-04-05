@@ -1,0 +1,14 @@
+{
+  "name": "faculty-leave-management-system",
+  "version": "1.0.0",
+  "description": "College faculty leave management system with MongoDB persistence",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "mongoose": "^8.12.1"
+  }
+}
