@@ -45,6 +45,7 @@ const ROLE_DEFAULTS = {
 const appState = {
   token: localStorage.getItem(TOKEN_KEY) || "",
   loading: true,
+  view: "landing",
   authMode: "login",
   apiUnavailable: false,
   message: null,
@@ -68,6 +69,7 @@ function init() {
   app.addEventListener("change", handleChange);
 
   if (appState.token) {
+    appState.view = "app";
     loadSession();
     return;
   }
@@ -171,6 +173,11 @@ function render() {
     return;
   }
 
+  if (appState.view === "landing") {
+    app.innerHTML = renderLandingPage();
+    return;
+  }
+
   if (!appState.user) {
     app.innerHTML = renderAuthPage();
     return;
@@ -183,35 +190,57 @@ function renderLoading() {
   return `
     <div class="loading-shell">
       <div class="loading-card">
-        <div class="crest crest-large">APCOER</div>
-        <h1>Loading College Leave Portal</h1>
-        <p>Preparing your records, approvals, and analytics.</p>
+        <div class="crest crest-large"></div>
+        <h1>Loading...</h1>
+      </div>
+    </div>
+  `;
+}
+
+function renderLandingPage() {
+  return `
+    <div class="land-shell">
+      <div class="land-bg-words" aria-hidden="true"></div>
+
+      <div class="land-orb land-orb-1" aria-hidden="true"></div>
+      <div class="land-orb land-orb-2" aria-hidden="true"></div>
+      <div class="land-orb land-orb-3" aria-hidden="true"></div>
+
+      <div class="land-center">
+        <p class="land-subtitle">OFFICIAL LEAVE PORTAL FOR APCOER</p>
+
+        <button class="land-cta" data-action="enter-app">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </button>
       </div>
     </div>
   `;
 }
 
 function renderAuthPage() {
+  const isLogin = appState.authMode === "login";
   return `
     <div class="auth-layout">
       <section class="auth-panel auth-panel-centered">
         <div class="auth-panel-header">
-          <div class="crest crest-large">APCOER</div>
           <div class="auth-heading">
-            <p class="eyebrow">Faculty Leave Management System</p>
-            <h2>${appState.authMode === "login" ? "Sign In" : "Register"}</h2>
+            <h2>${isLogin ? "Sign In" : "Register"}</h2>
           </div>
           <div class="auth-toggle">
-            <button class="toggle-button ${appState.authMode === "login" ? "active" : ""}" data-action="set-auth-mode" data-mode="login">Login</button>
-            <button class="toggle-button ${appState.authMode === "register" ? "active" : ""}" data-action="set-auth-mode" data-mode="register">Register</button>
+            <button class="toggle-button ${isLogin ? "active" : ""}" data-action="set-auth-mode" data-mode="login">Login</button>
+            <button class="toggle-button ${!isLogin ? "active" : ""}" data-action="set-auth-mode" data-mode="register">Register</button>
           </div>
         </div>
         ${appState.message ? renderMessage(appState.message) : ""}
-        ${appState.authMode === "login" ? renderLoginForm() : renderRegisterForm()}
+        ${isLogin ? renderLoginForm() : renderRegisterForm()}
       </section>
     </div>
   `;
 }
+
+// Demo accounts removed as per request
 
 function renderLoginForm() {
   return `
@@ -224,9 +253,9 @@ function renderLoginForm() {
         <label for="login-password">Password</label>
         <input id="login-password" name="password" type="password" placeholder="Enter your password" required />
       </div>
-      <div class="auth-actions">
-        <button type="submit" class="button-primary">Log In</button>
+      <div class="auth-actions-row">
         <button type="button" class="button-secondary" data-action="set-auth-mode" data-mode="register">New Registration</button>
+        <button type="submit" class="button-primary">Log In</button>
       </div>
     </form>
   `;
@@ -261,7 +290,7 @@ function renderRegisterForm() {
         </div>
         <div class="field-group">
           <label for="register-password">Password</label>
-          <input id="register-password" name="password" type="password" placeholder="Minimum 6 characters" required />
+          <input id="register-password" name="password" type="password" placeholder="Min 6 chars, no special characters" required />
         </div>
       </div>
       <div class="field-row">
@@ -273,12 +302,18 @@ function renderRegisterForm() {
         </div>
         <div class="field-group">
           <label for="register-designation">Designation</label>
-          <input id="register-designation" name="designation" placeholder="${escapeHtml(defaults.designation)}" required />
+          <select id="register-designation" name="designation" required>
+            <option value="Assistant Professor">Assistant Professor</option>
+            <option value="Head of Department">Head of Department</option>
+            <option value="Clerk">Clerk</option>
+            <option value="Professor">Professor</option>
+            <option value="Principal">Principal</option>
+          </select>
         </div>
       </div>
-      <div class="auth-actions">
-        <button type="submit" class="button-primary">Create Account</button>
+      <div class="auth-actions-row">
         <button type="button" class="button-secondary" data-action="set-auth-mode" data-mode="login">Back to Login</button>
+        <button type="submit" class="button-primary">Create Account</button>
       </div>
     </form>
   `;
@@ -289,55 +324,54 @@ function renderDashboard() {
   const primaryTabs = tabs.filter((tab) => !["analytics", "ai-summary"].includes(tab.id));
   const insightTabs = tabs.filter((tab) => ["analytics", "ai-summary"].includes(tab.id));
   const metrics = getDashboardMetrics(appState.user);
+
   return `
-    <div class="dashboard-shell">
-      <aside class="dashboard-sidebar">
-        <div class="sidebar-brand">
-          <div class="sidebar-brand-top">
-            <div class="crest">APCOER</div>
-            <button class="button-secondary button-logout sidebar-logout" data-action="logout">Log Out</button>
-          </div>
-          <div>
-            <h1>College Leave System</h1>
-          </div>
-        </div>
-        <div class="sidebar-summary">
-          <div class="sidebar-stat">
-            <span>Visible</span>
-            <strong>${metrics.totalRequests}</strong>
-          </div>
-          <div class="sidebar-stat">
-            <span>Pending</span>
-            <strong>${metrics.pendingRequests}</strong>
-          </div>
-          <div class="sidebar-stat">
-            <span>Action</span>
-            <strong>${metrics.pendingApprovals}</strong>
+    <div class="dashboard-shell horizontal-transition">
+      <nav class="dashboard-navbar">
+        <div class="navbar-left">
+          <div class="navbar-summary">
+            <div class="navbar-stat">
+              <span>Visible</span>
+              <strong>${metrics.totalRequests}</strong>
+            </div>
+            <div class="navbar-stat">
+              <span>Pending</span>
+              <strong>${metrics.pendingRequests}</strong>
+            </div>
+            <div class="navbar-stat">
+              <span>Action</span>
+              <strong>${metrics.pendingApprovals}</strong>
+            </div>
           </div>
         </div>
-        <div class="sidebar-group">
-          <p class="sidebar-label">Workspace</p>
-          <nav class="sidebar-nav">
-            ${primaryTabs.map((tab) => `
-              <button class="nav-button nav-${tab.id} ${appState.tab === tab.id ? "active" : ""}" data-action="set-tab" data-tab="${tab.id}">
-                ${tab.label}
-              </button>
-            `).join("")}
-          </nav>
-        </div>
-        ${insightTabs.length ? `
-          <div class="sidebar-group">
-            <p class="sidebar-label">Insights</p>
-            <nav class="sidebar-nav">
-              ${insightTabs.map((tab) => `
+
+        <div class="navbar-center">
+          <div class="navbar-groups">
+            <div class="navbar-nav">
+              ${primaryTabs.map((tab) => `
                 <button class="nav-button nav-${tab.id} ${appState.tab === tab.id ? "active" : ""}" data-action="set-tab" data-tab="${tab.id}">
                   ${tab.label}
                 </button>
               `).join("")}
-            </nav>
+            </div>
+            ${insightTabs.length ? `
+              <div class="navbar-divider"></div>
+              <div class="navbar-nav">
+                ${insightTabs.map((tab) => `
+                  <button class="nav-button nav-${tab.id} ${appState.tab === tab.id ? "active" : ""}" data-action="set-tab" data-tab="${tab.id}">
+                    ${tab.label}
+                  </button>
+                `).join("")}
+              </div>
+            ` : ""}
           </div>
-        ` : ""}
-      </aside>
+        </div>
+
+        <div class="navbar-right">
+          <button class="button-secondary button-logout" data-action="logout">Log Out</button>
+        </div>
+      </nav>
+
       <div class="dashboard-main">
         ${renderTopBanner()}
         ${appState.message ? renderMessage(appState.message) : ""}
@@ -471,79 +505,112 @@ function renderApply() {
 
   const balanceRows = getBalanceRows(appState.user);
   return `
-    <section class="section-card split-layout">
-      <form id="apply-form" class="content-panel">
-        <div class="section-heading compact">
-          <div>
-            <p class="eyebrow">Leave Application</p>
-            <h2>Submit a New Request</h2>
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field-group">
-            <label for="leave-type">Leave Type</label>
-            <select id="leave-type" name="leaveType" required>
-              ${LEAVE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join("")}
-            </select>
-          </div>
-          <div class="field-group">
-            <label for="leave-department">Department</label>
-            <input id="leave-department" value="${escapeHtml(appState.user.department)}" disabled />
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field-group">
-            <label for="leave-start">Start Date</label>
-            <input id="leave-start" name="startDate" type="date" required />
-          </div>
-          <div class="field-group">
-            <label for="leave-end">End Date</label>
-            <input id="leave-end" name="endDate" type="date" required />
-          </div>
-        </div>
-        <div class="field-group">
-          <label for="substitute-teacher">Substitute Teacher</label>
-          <input id="substitute-teacher" name="substituteTeacher" placeholder="Enter the substitute teacher name" required />
-        </div>
-        <div class="field-group">
-          <label for="leave-reason">Reason for Leave</label>
-          <textarea id="leave-reason" name="reason" placeholder="Provide the formal reason for leave." required></textarea>
-        </div>
-        <div class="upload-section">
-          <div class="upload-section-header">
-            <div>
-              <strong>Supporting Proof</strong>
-              <p class="muted">Optional image or document for leave verification.</p>
+    <div class="apply-container">
+      <section class="section-card split-layout">
+        <div class="content-panel form-panel">
+          <form id="apply-form">
+            <div class="section-heading compact form-header">
+              <div>
+                <p class="eyebrow">Leave Application</p>
+                <h2>Submit a New Request</h2>
+              </div>
             </div>
-            <span class="proof-pill empty">Optional</span>
+
+            <div class="form-grid">
+              <!-- 1st Row: Leave Type | Department -->
+              <div class="form-row-2">
+                <div class="field-group">
+                  <label for="leave-type">Leave Type</label>
+                  <div class="select-wrapper">
+                    <select id="leave-type" name="leaveType" required>
+                      ${LEAVE_TYPES.map((type) => `<option value="${type}">${type}</option>`).join("")}
+                    </select>
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label for="leave-department">Department</label>
+                  <input id="leave-department" value="${escapeHtml(appState.user.department)}" disabled class="disabled-input" />
+                </div>
+              </div>
+
+              <!-- 2nd Row: Start Date | End Date -->
+              <div class="form-row-2">
+                <div class="field-group">
+                  <label for="leave-start">Start Date</label>
+                  <input id="leave-start" name="startDate" type="date" required />
+                </div>
+                <div class="field-group">
+                  <label for="leave-end">End Date</label>
+                  <input id="leave-end" name="endDate" type="date" required />
+                </div>
+              </div>
+
+              <!-- 3rd Row: Substitute Teacher -->
+              <div class="form-group-full">
+                <div class="field-group">
+                  <label for="substitute-teacher">Substitute Teacher</label>
+                  <input id="substitute-teacher" name="substituteTeacher" placeholder="Enter the substitute teacher name" required />
+                </div>
+              </div>
+
+              <!-- 4th Row: Reason for Leave -->
+              <div class="form-group-full">
+                <div class="field-group">
+                  <label for="leave-reason">Reason for Leave</label>
+                  <textarea id="leave-reason" name="reason" placeholder="Provide the formal reason for leave." required></textarea>
+                </div>
+              </div>
+
+              <!-- 5th Row: Supporting Proof Card -->
+              <div class="form-group-full">
+                <div class="proof-card">
+                  <div class="proof-card-header">
+                    <div>
+                      <h3 class="proof-title">Supporting Proof</h3>
+                      <p class="proof-subtitle">Optional image or document for leave verification.</p>
+                    </div>
+                    <span class="proof-pill empty">Optional</span>
+                  </div>
+                  
+                  <div class="proof-body">
+                    <div class="field-group">
+                      <label for="leave-proof" class="inner-label">Upload Proof File</label>
+                      <div class="file-input-wrapper">
+                        <input id="leave-proof" name="proofFile" type="file" accept="${PROOF_ACCEPT}" />
+                      </div>
+                    </div>
+                    <p class="proof-help-text">
+                      Accepted formats: <strong>PDF, DOC, DOCX, JPG, PNG, and WEBP</strong>. Max size: <strong>2.5 MB</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-footer">
+              <p class="approval-note">
+                Faculty requests begin with HOD approval. HOD self-leave automatically skips the HOD stage and goes directly to the Admin Office.
+              </p>
+              <div class="form-actions">
+                <button type="submit" class="button-primary submit-btn">Submit Leave Request</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <article class="content-panel balance-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">Balance Overview</p>
+              <h2>Available Leave Balance</h2>
+            </div>
           </div>
-          <div class="field-group">
-            <label for="leave-proof">Upload Proof File</label>
-            <input id="leave-proof" name="proofFile" type="file" accept="${PROOF_ACCEPT}" />
+          <div class="bar-chart">
+            ${balanceRows.map((row) => renderBalanceBar(row.label, row.remaining, row.entitlement)).join("")}
           </div>
-          <p class="support-note">
-            Accepted formats: PDF, DOC, DOCX, JPG, PNG, and WEBP. Maximum file size: 2.5 MB.
-          </p>
-        </div>
-        <p class="support-note">
-          Faculty requests begin with HOD approval. HOD self-leave automatically skips the HOD stage and goes directly to the Admin Office.
-        </p>
-        <div class="auth-actions">
-          <button type="submit" class="button-primary">Submit Leave Request</button>
-        </div>
-      </form>
-      <article class="content-panel">
-        <div class="section-heading compact">
-          <div>
-            <p class="eyebrow">Balance Overview</p>
-            <h2>Available Leave Balance</h2>
-          </div>
-        </div>
-        <div class="bar-chart">
-          ${balanceRows.map((row) => renderBalanceBar(row.label, row.remaining, row.entitlement)).join("")}
-        </div>
-      </article>
-    </section>
+        </article>
+      </section>
+    </div>
   `;
 }
 
@@ -1336,6 +1403,15 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "enter-app") {
+    appState.view = "auth";
+    appState.authMode = "login";
+    render();
+    return;
+  }
+
+  // fill-demo action removed
+
   if (!appState.user && action !== "set-auth-mode") {
     return;
   }
@@ -1525,7 +1601,7 @@ function getCurrentTabMeta() {
   const labels = {
     overview: {
       section: "Dashboard",
-      title: "Simple Leave Workspace",
+      title: "Overview",
       description: ""
     },
     apply: {

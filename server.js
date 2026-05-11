@@ -1,13 +1,46 @@
 const path = require("path");
+const fs = require("fs");
 const crypto = require("crypto");
 const express = require("express");
-const mongoose = require("mongoose");
+const { initializeApp } = require("firebase/app");
+const {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  deleteDoc,
+  collection,
+  getDocs,
+  query,
+  where
+} = require("firebase/firestore");
+const {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject
+} = require("firebase/storage");
+
+loadEnvFile();
 
 const PORT = Number(process.env.PORT || 3000);
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/faculty_leave_management";
+
+const firebaseConfig = {
+  apiKey: cleanEnvValue(process.env.FIREBASE_API_KEY || ""),
+  authDomain: cleanEnvValue(process.env.FIREBASE_AUTH_DOMAIN || ""),
+  projectId: cleanEnvValue(process.env.FIREBASE_PROJECT_ID || ""),
+  storageBucket: cleanEnvValue(process.env.FIREBASE_STORAGE_BUCKET || ""),
+  messagingSenderId: cleanEnvValue(process.env.FIREBASE_MESSAGING_SENDER_ID || ""),
+  appId: cleanEnvValue(process.env.FIREBASE_APP_ID || ""),
+  measurementId: cleanEnvValue(process.env.FIREBASE_MEASUREMENT_ID || "")
+};
 
 const app = express();
 const sessionStore = new Map();
+
+let db = null;
+let storage = null;
 
 const LEAVE_TYPES = [
   "Casual Leave",
@@ -22,83 +55,6 @@ const ROLE_LABELS = {
   principal: "Principal"
 };
 
-const AUTHORIZED_ACCOUNTS = [
-  {
-    username: "rankhambedevika@gmail.com",
-    name: "Devika Rankhambe",
-    role: "faculty",
-    department: "Information Technology",
-    designation: "Assistant Professor"
-  },
-  {
-    username: "ramesh.lavhe@abmspcoerpune.org",
-    name: "Ramesh Lavhe",
-    role: "faculty",
-    department: "Information Technology",
-    designation: "Assistant Professor"
-  },
-  {
-    username: "sayali.kokane@abmspcoerpune.org",
-    name: "Sayali Kokane",
-    role: "faculty",
-    department: "Information Technology",
-    designation: "Assistant Professor"
-  },
-  {
-    username: "ashok.kalal@abmspcoerpune.org",
-    name: "Ashok Kalal",
-    role: "faculty",
-    department: "Information Technology",
-    designation: "Assistant Professor"
-  },
-  {
-    username: "rajshri.nikam@abmspcoerpune.org",
-    name: "Rajshri Nikam",
-    role: "faculty",
-    department: "Information Technology",
-    designation: "Assistant Professor"
-  },
-  {
-    username: "akash.dodke@abmspcoerpune.org",
-    name: "Akash Dodke",
-    role: "faculty",
-    department: "Information Technology",
-    designation: "Assistant Professor"
-  },
-  {
-    username: "prajakta.khaire@abmspcoerpune.org",
-    name: "Prajakta Khaire",
-    role: "faculty",
-    department: "Information Technology",
-    designation: "Assistant Professor"
-  },
-  {
-    username: "amit.kadam@abmspcoerpune.org",
-    name: "Amit Kadam",
-    role: "hod",
-    department: "Information Technology",
-    designation: "Head of Department"
-  },
-  {
-    username: "office@abmspcoerpune.org",
-    name: "Admin Office",
-    role: "admin",
-    department: "Administration Office",
-    designation: "Administrative Officer"
-  },
-  {
-    username: "sunil.thakre@abmspcoerpune.org",
-    name: "Sunil Thakre",
-    role: "principal",
-    department: "Principal Office",
-    designation: "Principal"
-  }
-];
-
-const AUTHORIZED_ACCOUNT_MAP = new Map(
-  AUTHORIZED_ACCOUNTS.map((account) => [account.username, account])
-);
-
 const PROOF_MIME_TYPES = [
   "application/pdf",
   "application/msword",
@@ -110,76 +66,15 @@ const PROOF_MIME_TYPES = [
 
 const MAX_PROOF_SIZE_BYTES = 2.5 * 1024 * 1024;
 
-const stageSchema = new mongoose.Schema({
-  role: { type: String, required: true },
-  status: {
-    type: String,
-    enum: ["pending", "approved", "rejected", "skipped"],
-    default: "pending"
-  },
-  actorId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-  actorName: { type: String, default: "" },
-  actedOn: { type: String, default: "" },
-  remarks: { type: String, default: "" }
-}, { _id: false });
-
-const proofSchema = new mongoose.Schema({
-  fileName: { type: String, required: true },
-  mimeType: { type: String, required: true },
-  dataUrl: { type: String, required: true },
-  size: { type: Number, required: true }
-}, { _id: false });
-
-const userSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  username: { type: String, required: true, unique: true, trim: true, lowercase: true },
-  passwordHash: { type: String, required: true },
-  passwordSalt: { type: String, required: true },
-  role: { type: String, enum: ["faculty", "hod", "admin", "principal"], required: true },
-  department: { type: String, required: true, trim: true },
-  normalizedDepartment: { type: String, required: true, trim: true },
-  designation: { type: String, required: true, trim: true },
-  leaveEntitlement: { type: mongoose.Schema.Types.Mixed, default: null }
-}, { timestamps: true });
-
-userSchema.index(
-  { role: 1, normalizedDepartment: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { role: "hod" }
-  }
-);
-
-const leaveSchema = new mongoose.Schema({
-  leaveCode: { type: String, required: true, unique: true },
-  applicantId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  applicantName: { type: String, required: true },
-  applicantRole: { type: String, required: true },
-  department: { type: String, required: true },
-  designation: { type: String, required: true },
-  substituteTeacher: { type: String, required: true },
-  leaveType: { type: String, enum: LEAVE_TYPES, required: true },
-  startDate: { type: String, required: true },
-  endDate: { type: String, required: true },
-  days: { type: Number, required: true },
-  reason: { type: String, required: true },
-  proof: { type: proofSchema, default: null },
-  appliedOn: { type: String, required: true },
-  lastUpdated: { type: String, required: true },
-  certificateNo: { type: String, default: "" },
-  stage1: { type: stageSchema, required: true },
-  stage2: { type: stageSchema, required: true },
-  stage3: { type: stageSchema, required: true }
-}, { timestamps: true });
-
-const User = mongoose.model("User", userSchema);
-const Leave = mongoose.model("Leave", leaveSchema);
-
 app.use(express.json({ limit: "6mb" }));
 app.use(express.static(path.join(__dirname)));
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, database: mongoose.connection.readyState === 1 });
+  res.json({
+    ok: true,
+    database: Boolean(db),
+    storage: Boolean(storage)
+  });
 });
 
 app.post("/api/auth/register", async (req, res) => {
@@ -193,10 +88,9 @@ app.post("/api/auth/register", async (req, res) => {
       designation
     } = req.body || {};
 
-    const normalizedUsername = String(username || "").trim().toLowerCase();
+    const normalizedUsername = normalizeUsername(username);
     const normalizedRole = String(role || "").trim().toLowerCase();
     const trimmedDepartment = String(department || "").trim();
-    const normalizedDepartment = normalizeDepartmentName(trimmedDepartment);
 
     if (!name || !normalizedUsername || !password || !trimmedDepartment || !designation) {
       return res.status(400).json({ error: "Please complete all registration fields." });
@@ -210,65 +104,58 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 6 characters long." });
     }
 
-    const approvedAccount = getAuthorizedAccount(normalizedUsername);
-    if (!approvedAccount) {
-      return res.status(403).json({
-        error: "This Gmail is not approved for registration in the college leave system."
-      });
+    const alphanumericRegex = /^[a-zA-Z0-9]+$/;
+    if (!alphanumericRegex.test(String(password))) {
+      return res.status(400).json({ error: "Password must not contain special characters (letters and numbers only)." });
     }
 
-    if (approvedAccount.role !== normalizedRole) {
-      return res.status(403).json({
-        error: `This Gmail is approved only for ${ROLE_LABELS[approvedAccount.role]}.`
-      });
-    }
-
-    const existing = await User.findOne({ username: normalizedUsername });
+    const existing = await findUserById(normalizedUsername);
     if (existing) {
       return res.status(409).json({ error: "This Gmail is already registered." });
     }
 
-    const approvedDepartment = approvedAccount.department;
-    const approvedNormalizedDepartment = normalizeDepartmentName(approvedDepartment);
+    const normalizedDepartment = normalizeDepartmentName(trimmedDepartment);
+    const allUsers = await listUsers();
 
+    // Check for unique Principal
+    if (normalizedRole === "principal") {
+      const existingPrincipal = allUsers.find(u => u.role === "principal");
+      if (existingPrincipal) {
+        return res.status(409).json({ error: "A Principal account already exists in the system." });
+      }
+    }
+
+    // Check for unique HOD per department
     if (normalizedRole === "hod") {
-      const existingHod = await User.findOne({
-        role: "hod",
-        $or: [
-          { normalizedDepartment: approvedNormalizedDepartment },
-          { department: approvedDepartment }
-        ]
-      }).collation({ locale: "en", strength: 2 });
-
+      const existingHod = allUsers.find(u => u.role === "hod" && u.normalizedDepartment === normalizedDepartment);
       if (existingHod) {
-        return res.status(409).json({
-          error: `A HOD account already exists for the ${approvedDepartment} department.`
+        return res.status(409).json({ 
+          error: `A HOD account already exists for the ${trimmedDepartment} department.` 
         });
       }
     }
 
     const { hash, salt } = hashPassword(String(password));
-    const user = await User.create({
-      name: approvedAccount.name,
+    const user = await createUserRecord({
+      id: normalizedUsername,
+      name: String(name).trim(),
       username: normalizedUsername,
       passwordHash: hash,
       passwordSalt: salt,
-      role: approvedAccount.role,
-      department: approvedDepartment,
-      normalizedDepartment: approvedNormalizedDepartment,
-      designation: approvedAccount.designation,
-      leaveEntitlement: getDefaultEntitlement(approvedAccount.role)
+      role: normalizedRole,
+      department: trimmedDepartment,
+      normalizedDepartment,
+      designation: String(designation).trim(),
+      leaveEntitlement: getDefaultEntitlement(normalizedRole)
     });
 
-    const token = createSession(user._id.toString());
+    const token = createSession(user.id);
     return res.status(201).json({
       token,
       user: serializeUser(user)
     });
   } catch (error) {
-    if (error?.code === 11000 && error?.keyPattern?.role && error?.keyPattern?.normalizedDepartment) {
-      return res.status(409).json({ error: "A HOD account already exists for this department." });
-    }
+    console.error("Registration error:", error);
     return res.status(500).json({ error: "Registration could not be completed." });
   }
 });
@@ -276,19 +163,18 @@ app.post("/api/auth/register", async (req, res) => {
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body || {};
-    const normalizedUsername = String(username || "").trim().toLowerCase();
-    const user = await User.findOne({ username: normalizedUsername });
+    const normalizedUsername = normalizeUsername(username);
+    const user = await findUserById(normalizedUsername);
 
-    const approvedAccount = getAuthorizedAccount(normalizedUsername);
-    if (!approvedAccount || !user || approvedAccount.role !== user.role) {
+    if (!user) {
       return res.status(401).json({ error: "Invalid Gmail or password." });
     }
 
-    if (!user || !verifyPassword(String(password || ""), user.passwordSalt, user.passwordHash)) {
+    if (!verifyPassword(String(password || ""), user.passwordSalt, user.passwordHash)) {
       return res.status(401).json({ error: "Invalid Gmail or password." });
     }
 
-    const token = createSession(user._id.toString());
+    const token = createSession(user.id);
     return res.json({
       token,
       user: serializeUser(user)
@@ -356,17 +242,25 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
     }
 
     const entitlement = req.user.leaveEntitlement || {};
-    const remaining = await getRemainingBalance(req.user._id, String(leaveType), entitlement);
+    const remaining = await getRemainingBalance(req.user.id, String(leaveType), entitlement);
     if (days > remaining) {
       return res.status(400).json({ error: `Insufficient remaining balance for ${leaveType}.` });
     }
 
     const today = getToday();
-    const leaveCode = createLeaveCode();
+    const leaveId = createLeaveDocumentId();
+    let storedProof = null;
 
-    const leave = await Leave.create({
-      leaveCode,
-      applicantId: req.user._id,
+    try {
+      storedProof = await storeProofAttachment(leaveId, proofAttachment);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    const leave = await createLeaveRecord({
+      id: leaveId,
+      leaveCode: createLeaveCode(),
+      applicantId: req.user.id,
       applicantName: req.user.name,
       applicantRole: req.user.role,
       department: req.user.department,
@@ -377,7 +271,7 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
       endDate: String(endDate),
       days,
       reason: String(reason).trim(),
-      proof: proofAttachment,
+      proof: storedProof,
       appliedOn: today,
       lastUpdated: today,
       certificateNo: "",
@@ -385,35 +279,14 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
         ? {
             role: "hod",
             status: "skipped",
-            actorId: req.user._id,
+            actorId: req.user.id,
             actorName: req.user.name,
             actedOn: today,
             remarks: "Applicant is the HOD; routed directly to Admin Office."
           }
-        : {
-            role: "hod",
-            status: "pending",
-            actorId: null,
-            actorName: "",
-            actedOn: "",
-            remarks: ""
-          },
-      stage2: {
-        role: "admin",
-        status: "pending",
-        actorId: null,
-        actorName: "",
-        actedOn: "",
-        remarks: ""
-      },
-      stage3: {
-        role: "principal",
-        status: "pending",
-        actorId: null,
-        actorName: "",
-        actedOn: "",
-        remarks: ""
-      }
+        : createPendingStage("hod"),
+      stage2: createPendingStage("admin"),
+      stage3: createPendingStage("principal")
     });
 
     return res.status(201).json({ leave: serializeLeave(leave) });
@@ -424,12 +297,12 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
 
 app.delete("/api/leaves/:id", requireAuth, async (req, res) => {
   try {
-    const leave = await Leave.findById(req.params.id);
+    const leave = await findLeaveById(req.params.id);
     if (!leave) {
       return res.status(404).json({ error: "Leave record not found." });
     }
 
-    if (leave.applicantId.toString() !== req.user._id.toString()) {
+    if (leave.applicantId !== req.user.id) {
       return res.status(403).json({ error: "You can delete only your own leave records." });
     }
 
@@ -437,7 +310,8 @@ app.delete("/api/leaves/:id", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Approved leave records cannot be deleted." });
     }
 
-    await leave.deleteOne();
+    await deleteProofAttachment(leave.proof);
+    await deleteLeaveRecord(leave.id);
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ error: "Leave record could not be deleted." });
@@ -447,7 +321,7 @@ app.delete("/api/leaves/:id", requireAuth, async (req, res) => {
 app.post("/api/leaves/:id/decision", requireAuth, async (req, res) => {
   try {
     const { decision, remarks } = req.body || {};
-    const leave = await Leave.findById(req.params.id);
+    const leave = await findLeaveById(req.params.id);
 
     if (!leave) {
       return res.status(404).json({ error: "Leave request not found." });
@@ -468,7 +342,7 @@ app.post("/api/leaves/:id/decision", requireAuth, async (req, res) => {
       leave.stage1 = {
         role: "hod",
         status: String(decision),
-        actorId: req.user._id,
+        actorId: req.user.id,
         actorName: req.user.name,
         actedOn: today,
         remarks: safeRemarks
@@ -477,7 +351,7 @@ app.post("/api/leaves/:id/decision", requireAuth, async (req, res) => {
       leave.stage2 = {
         role: "admin",
         status: String(decision),
-        actorId: req.user._id,
+        actorId: req.user.id,
         actorName: req.user.name,
         actedOn: today,
         remarks: safeRemarks
@@ -486,7 +360,7 @@ app.post("/api/leaves/:id/decision", requireAuth, async (req, res) => {
       leave.stage3 = {
         role: "principal",
         status: String(decision),
-        actorId: req.user._id,
+        actorId: req.user.id,
         actorName: req.user.name,
         actedOn: today,
         remarks: safeRemarks
@@ -498,8 +372,8 @@ app.post("/api/leaves/:id/decision", requireAuth, async (req, res) => {
     }
 
     leave.lastUpdated = today;
-    await leave.save();
-    return res.json({ leave: serializeLeave(leave) });
+    const savedLeave = await saveLeaveRecord(leave);
+    return res.json({ leave: serializeLeave(savedLeave) });
   } catch (error) {
     return res.status(500).json({ error: "The decision could not be recorded." });
   }
@@ -529,7 +403,7 @@ async function requireAuth(req, res, next) {
       return res.status(401).json({ error: "Session expired. Please log in again." });
     }
 
-    const user = await User.findById(session.userId);
+    const user = await findUserById(session.userId);
     if (!user) {
       sessionStore.delete(token);
       return res.status(401).json({ error: "Session is no longer valid." });
@@ -545,7 +419,7 @@ async function requireAuth(req, res, next) {
 
 function serializeUser(user) {
   return {
-    id: user._id.toString(),
+    id: user.id,
     name: user.name,
     username: user.username,
     role: user.role,
@@ -553,15 +427,15 @@ function serializeUser(user) {
     department: user.department,
     designation: user.designation,
     leaveEntitlement: user.leaveEntitlement || null,
-    createdAt: user.createdAt
+    createdAt: user.createdAt || ""
   };
 }
 
 function serializeLeave(leave) {
   return {
-    id: leave._id.toString(),
+    id: leave.id,
     leaveCode: leave.leaveCode,
-    applicantId: leave.applicantId.toString(),
+    applicantId: leave.applicantId,
     applicantName: leave.applicantName,
     applicantRole: leave.applicantRole,
     department: leave.department,
@@ -572,12 +446,7 @@ function serializeLeave(leave) {
     endDate: leave.endDate,
     days: leave.days,
     reason: leave.reason,
-    proof: leave.proof ? {
-      fileName: leave.proof.fileName,
-      mimeType: leave.proof.mimeType,
-      dataUrl: leave.proof.dataUrl,
-      size: leave.proof.size
-    } : null,
+    proof: serializeProof(leave.proof),
     appliedOn: leave.appliedOn,
     lastUpdated: leave.lastUpdated,
     certificateNo: leave.certificateNo,
@@ -587,11 +456,26 @@ function serializeLeave(leave) {
   };
 }
 
+function serializeProof(proof) {
+  if (!proof) {
+    return null;
+  }
+
+  const dataUrl = proof.downloadUrl || proof.dataUrl || "";
+  return {
+    fileName: proof.fileName,
+    mimeType: proof.mimeType,
+    dataUrl,
+    downloadUrl: dataUrl,
+    size: proof.size
+  };
+}
+
 function serializeStage(stage) {
   return {
     role: stage.role,
     status: stage.status,
-    actorId: stage.actorId ? stage.actorId.toString() : null,
+    actorId: stage.actorId || null,
     actorName: stage.actorName || "",
     actedOn: stage.actedOn || "",
     remarks: stage.remarks || ""
@@ -617,8 +501,8 @@ function normalizeDepartmentName(value) {
     .toLowerCase();
 }
 
-function getAuthorizedAccount(username) {
-  return AUTHORIZED_ACCOUNT_MAP.get(String(username || "").trim().toLowerCase()) || null;
+function normalizeUsername(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function sanitizeProofAttachment(proof) {
@@ -655,6 +539,54 @@ function sanitizeProofAttachment(proof) {
   };
 }
 
+async function storeProofAttachment(leaveId, proof) {
+  if (!proof) {
+    return null;
+  }
+
+  if (!storage) {
+    throw new Error("Proof uploads require Firebase Storage to be configured.");
+  }
+
+  const base64 = String(proof.dataUrl || "").split(",")[1] || "";
+  const buffer = Buffer.from(base64, "base64");
+  const safeFileName = sanitizeFileName(proof.fileName);
+  const storagePath = `leave-proofs/${leaveId}/${Date.now()}-${safeFileName}`;
+  const storageRef = ref(storage, storagePath);
+
+  await uploadBytes(storageRef, buffer, {
+    contentType: proof.mimeType
+  });
+
+  const downloadUrl = await getDownloadURL(storageRef);
+  return {
+    fileName: proof.fileName,
+    mimeType: proof.mimeType,
+    size: proof.size,
+    storagePath,
+    downloadUrl
+  };
+}
+
+async function deleteProofAttachment(proof) {
+  if (!proof || !proof.storagePath || !storage) {
+    return;
+  }
+
+  try {
+    await deleteObject(ref(storage, proof.storagePath));
+  } catch (_error) {
+    // Keep leave deletion resilient even if the storage object was already removed.
+  }
+}
+
+function sanitizeFileName(fileName) {
+  return String(fileName || "proof")
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 120);
+}
+
 function estimateDataUrlBytes(dataUrl) {
   const base64 = String(dataUrl || "").split(",")[1] || "";
   return Math.floor((base64.length * 3) / 4);
@@ -681,45 +613,41 @@ async function getVisibleUsers(user) {
   if (user.role === "faculty") {
     return [user];
   }
+
+  const users = await listUsers();
   if (user.role === "hod") {
-    return User.find({
-      $or: [
-        { _id: user._id },
-        { department: user.department }
-      ]
-    }).sort({ name: 1 });
+    return users
+      .filter((member) => member.department === user.department)
+      .sort(sortUsersByName);
   }
-  return User.find({}).sort({ name: 1 });
+
+  return users.sort(sortUsersByName);
 }
 
 async function getVisibleLeaves(user) {
+  const leaves = await listLeaves();
+
   if (user.role === "faculty") {
-    return Leave.find({ applicantId: user._id }).sort({ createdAt: -1 });
+    return leaves
+      .filter((leave) => leave.applicantId === user.id)
+      .sort(sortLeavesByCreatedAtDesc);
   }
+
   if (user.role === "hod") {
-    return Leave.find({ department: user.department }).sort({ createdAt: -1 });
+    return leaves
+      .filter((leave) => leave.department === user.department)
+      .sort(sortLeavesByCreatedAtDesc);
   }
-  return Leave.find({}).sort({ createdAt: -1 });
+
+  return leaves.sort(sortLeavesByCreatedAtDesc);
 }
 
 async function getRemainingBalance(userId, leaveType, entitlement) {
-  const result = await Leave.aggregate([
-    {
-      $match: {
-        applicantId: new mongoose.Types.ObjectId(userId),
-        leaveType,
-        "stage3.status": "approved"
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        totalDays: { $sum: "$days" }
-      }
-    }
-  ]);
+  const leaves = await listLeavesForApplicant(userId);
+  const approvedDays = leaves
+    .filter((leave) => leave.leaveType === leaveType && leave.stage3.status === "approved")
+    .reduce((sum, leave) => sum + Number(leave.days || 0), 0);
 
-  const approvedDays = result[0]?.totalDays || 0;
   return Math.max((entitlement[leaveType] || 0) - approvedDays, 0);
 }
 
@@ -783,11 +711,192 @@ function createLeaveCode() {
   return `LV-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
 }
 
+function createLeaveDocumentId() {
+  return crypto.randomUUID();
+}
+
+function createPendingStage(role) {
+  return {
+    role,
+    status: "pending",
+    actorId: null,
+    actorName: "",
+    actedOn: "",
+    remarks: ""
+  };
+}
+
+/* ── Firestore Data Access Layer ─────────────────────────────────── */
+
+async function createUserRecord(data) {
+  const now = new Date().toISOString();
+  const record = {
+    name: data.name,
+    username: data.username,
+    passwordHash: data.passwordHash,
+    passwordSalt: data.passwordSalt,
+    role: data.role,
+    department: data.department,
+    normalizedDepartment: data.normalizedDepartment,
+    designation: data.designation,
+    leaveEntitlement: data.leaveEntitlement || null,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await setDoc(doc(db, "users", data.id), record);
+  return {
+    id: data.id,
+    ...record
+  };
+}
+
+async function createLeaveRecord(data) {
+  const now = new Date().toISOString();
+  const record = {
+    leaveCode: data.leaveCode,
+    applicantId: data.applicantId,
+    applicantName: data.applicantName,
+    applicantRole: data.applicantRole,
+    department: data.department,
+    designation: data.designation,
+    substituteTeacher: data.substituteTeacher,
+    leaveType: data.leaveType,
+    startDate: data.startDate,
+    endDate: data.endDate,
+    days: data.days,
+    reason: data.reason,
+    proof: data.proof || null,
+    appliedOn: data.appliedOn,
+    lastUpdated: data.lastUpdated,
+    certificateNo: data.certificateNo || "",
+    stage1: data.stage1,
+    stage2: data.stage2,
+    stage3: data.stage3,
+    createdAt: now,
+    createdAtMs: Date.now(),
+    updatedAt: now,
+    updatedAtMs: Date.now()
+  };
+
+  await setDoc(doc(db, "leaves", data.id), record);
+  return {
+    id: data.id,
+    ...record
+  };
+}
+
+async function saveLeaveRecord(leave) {
+  const now = new Date().toISOString();
+  const record = {
+    leaveCode: leave.leaveCode,
+    applicantId: leave.applicantId,
+    applicantName: leave.applicantName,
+    applicantRole: leave.applicantRole,
+    department: leave.department,
+    designation: leave.designation,
+    substituteTeacher: leave.substituteTeacher,
+    leaveType: leave.leaveType,
+    startDate: leave.startDate,
+    endDate: leave.endDate,
+    days: leave.days,
+    reason: leave.reason,
+    proof: leave.proof || null,
+    appliedOn: leave.appliedOn,
+    lastUpdated: leave.lastUpdated,
+    certificateNo: leave.certificateNo || "",
+    stage1: leave.stage1,
+    stage2: leave.stage2,
+    stage3: leave.stage3,
+    createdAt: leave.createdAt || now,
+    createdAtMs: leave.createdAtMs || Date.now(),
+    updatedAt: now,
+    updatedAtMs: Date.now()
+  };
+
+  await setDoc(doc(db, "leaves", leave.id), record);
+  return {
+    id: leave.id,
+    ...record
+  };
+}
+
+async function deleteLeaveRecord(leaveId) {
+  await deleteDoc(doc(db, "leaves", leaveId));
+}
+
+async function findUserById(userId) {
+  const snapshot = await getDoc(doc(db, "users", userId));
+  if (!snapshot.exists()) {
+    return null;
+  }
+  return { id: snapshot.id, ...snapshot.data() };
+}
+
+async function findLeaveById(leaveId) {
+  const snapshot = await getDoc(doc(db, "leaves", leaveId));
+  if (!snapshot.exists()) {
+    return null;
+  }
+  return { id: snapshot.id, ...snapshot.data() };
+}
+
+async function listUsers() {
+  const snapshot = await getDocs(collection(db, "users"));
+  return snapshot.docs.map(mapSnapshot);
+}
+
+async function listLeaves() {
+  const snapshot = await getDocs(collection(db, "leaves"));
+  return snapshot.docs.map(mapSnapshot);
+}
+
+async function listLeavesForApplicant(applicantId) {
+  const q = query(
+    collection(db, "leaves"),
+    where("applicantId", "==", applicantId)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(mapSnapshot);
+}
+
+async function findHodByDepartment(normalizedDepartment) {
+  const users = await listUsers();
+  return users.find((user) => user.role === "hod" && user.normalizedDepartment === normalizedDepartment) || null;
+}
+
+function mapSnapshot(snapshot) {
+  return {
+    id: snapshot.id,
+    ...snapshot.data()
+  };
+}
+
+function sortUsersByName(a, b) {
+  return String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" });
+}
+
+function sortLeavesByCreatedAtDesc(a, b) {
+  return Number(b.createdAtMs || 0) - Number(a.createdAtMs || 0);
+}
+
+/* ── Firebase Initialization ─────────────────────────────────────── */
+
+function initializeFirebaseServices() {
+  const firebaseApp = initializeApp(firebaseConfig);
+  db = getFirestore(firebaseApp);
+  storage = firebaseConfig.storageBucket ? getStorage(firebaseApp) : null;
+}
+
 async function start() {
   try {
-    await mongoose.connect(MONGODB_URI);
+    initializeFirebaseServices();
     app.listen(PORT, () => {
       console.log(`Faculty leave management system running on http://localhost:${PORT}`);
+      console.log(`Firebase Firestore connected for project: ${firebaseConfig.projectId || "default"}`);
+      if (storage) {
+        console.log(`Firebase Storage bucket configured: ${firebaseConfig.storageBucket}`);
+      }
     });
   } catch (error) {
     console.error("Failed to start the server.", error);
@@ -796,3 +905,36 @@ async function start() {
 }
 
 start();
+
+/* ── Environment File Loader ─────────────────────────────────────── */
+
+function loadEnvFile() {
+  const envPath = path.join(__dirname, ".env");
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+
+  const envText = fs.readFileSync(envPath, "utf8");
+  envText.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      return;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex === -1) {
+      return;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
+
+    if (key && process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  });
+}
+
+function cleanEnvValue(value) {
+  return String(value || "").trim().replace(/^['"]|['"]$/g, "");
+}
