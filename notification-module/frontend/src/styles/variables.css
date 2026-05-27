@@ -1,0 +1,47 @@
+:root {
+  /* Premium Palette (Deep Wine, Platinum Glass, Amber accents) */
+  --brand-h: 0;
+  --brand-s: 53%;
+  --brand-l: 36%;
+  --brand: hsl(var(--brand-h), var(--brand-s), var(--brand-l)); /* #8d2b2b */
+  --brand-dark: hsl(var(--brand-h), var(--brand-s), 24%); /* #5d1b1b */
+  --brand-light: hsl(var(--brand-h), var(--brand-s), 96%); /* #fdf6f6 */
+  
+  --accent: #f47a2f; /* Premium warm amber */
+  --success: #2d6a4f;
+  --danger: #a4161a;
+  --warning: #f59e0b;
+  --pending: #ea580c;
+  
+  --bg-primary: #f8fafc;
+  --bg-card: rgba(255, 255, 255, 0.72);
+  --border-glass: rgba(141, 43, 43, 0.12);
+  
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-light: #94a3b8;
+  
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-full: 9999px;
+  
+  --shadow-sm: 0 2px 8px rgba(141, 43, 43, 0.04);
+  --shadow-md: 0 8px 30px rgba(141, 43, 43, 0.06);
+  --shadow-lg: 0 16px 40px rgba(141, 43, 43, 0.1);
+  
+  --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --font-family: 'Outfit', sans-serif;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #0f172a;
+  --bg-card: rgba(30, 41, 59, 0.7);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-light: #64748b;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.4);
+}

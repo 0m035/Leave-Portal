@@ -246,8 +246,8 @@ function renderLoginForm() {
   return `
     <form id="login-form" class="auth-form">
       <div class="field-group">
-        <label for="login-username">Gmail</label>
-        <input id="login-username" name="username" type="email" placeholder="Enter your Gmail" autocomplete="email" required />
+        <label for="login-username">College Email ID</label>
+        <input id="login-username" name="username" type="email" placeholder="name@gmail.com" autocomplete="email" required />
       </div>
       <div class="field-group">
         <label for="login-password">Password</label>
@@ -274,8 +274,8 @@ function renderRegisterForm() {
           <input id="register-name" name="name" placeholder="Enter full name" required />
         </div>
         <div class="field-group">
-          <label for="register-username">Gmail</label>
-          <input id="register-username" name="username" type="email" placeholder="Enter your Gmail" autocomplete="email" required />
+          <label for="register-username">College Email ID</label>
+          <input id="register-username" name="username" type="email" placeholder="name@gmail.com" autocomplete="email" required />
         </div>
       </div>
       <div class="field-row">
@@ -407,6 +407,9 @@ function renderCurrentTab() {
   }
   if (appState.tab === "apply") {
     return renderApply();
+  }
+  if (appState.tab === "movement-leave") {
+    return renderMovementLeave();
   }
   if (appState.tab === "my-leaves") {
     return renderMyLeaves();
@@ -614,6 +617,123 @@ function renderApply() {
   `;
 }
 
+function renderMovementLeave() {
+  if (!canSubmitLeave(appState.user)) {
+    return `
+      <section class="section-card">
+        ${renderEmptyState("This role does not submit leave applications from the portal.")}
+      </section>
+    `;
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  
+  return `
+    <div class="apply-container">
+      <section class="section-card split-layout">
+        <div class="content-panel form-panel">
+          <form id="movement-form">
+            <div class="section-heading compact form-header">
+              <div>
+                <p class="eyebrow">Movement Leave</p>
+                <h2>Submit a Movement Leave Request</h2>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <!-- 1st Row: Date | Department -->
+              <div class="form-row-2">
+                <div class="field-group">
+                  <label for="movement-date">Date (Applying Day)</label>
+                  <input id="movement-date" name="startDate" type="date" value="${todayStr}" readonly class="disabled-input" />
+                </div>
+                <div class="field-group">
+                  <label for="movement-department">Department</label>
+                  <input id="movement-department" value="${escapeHtml(appState.user.department)}" disabled class="disabled-input" />
+                </div>
+              </div>
+
+              <!-- 2nd Row: Start Time | End Time -->
+              <div class="form-row-2">
+                <div class="field-group">
+                  <label for="movement-start-time">Start Time</label>
+                  <input id="movement-start-time" name="startTime" type="time" required />
+                </div>
+                <div class="field-group">
+                  <label for="movement-end-time">End Time</label>
+                  <input id="movement-end-time" name="endTime" type="time" required />
+                </div>
+              </div>
+
+              <!-- 3rd Row: Reason -->
+              <div class="form-group-full">
+                <div class="field-group">
+                  <label for="movement-reason">Reason for Movement Leave</label>
+                  <textarea id="movement-reason" name="reason" placeholder="Provide the formal reason for movement leave." required></textarea>
+                </div>
+              </div>
+
+              <!-- 4th Row: Supporting Proof Card -->
+              <div class="form-group-full">
+                <div class="proof-card">
+                  <div class="proof-card-header">
+                    <div>
+                      <h3 class="proof-title">Supporting Proof</h3>
+                      <p class="proof-subtitle">Optional image or document for leave verification.</p>
+                    </div>
+                    <span class="proof-pill empty">Optional</span>
+                  </div>
+                  
+                  <div class="proof-body">
+                    <div class="field-group">
+                      <label for="movement-proof" class="inner-label">Upload Proof File</label>
+                      <div class="file-input-wrapper">
+                        <input id="movement-proof" name="proofFile" type="file" accept="${PROOF_ACCEPT}" />
+                      </div>
+                    </div>
+                    <p class="proof-help-text">
+                      Accepted formats: <strong>PDF, DOC, DOCX, JPG, PNG, and WEBP</strong>. Max size: <strong>2.5 MB</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-footer">
+              <p class="approval-note">
+                Faculty movement requests begin with HOD approval. HOD self-leave automatically skips the HOD stage and goes directly to the Admin Office.
+              </p>
+              <div class="form-actions">
+                <button type="submit" class="button-primary submit-btn">Submit Movement Leave</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <article class="content-panel balance-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">Info Panel</p>
+              <h2>Movement Leave Information</h2>
+            </div>
+          </div>
+          <div class="info-content" style="margin-top: 1.5rem; line-height: 1.6; color: var(--ink-body);">
+            <p><strong>What is Movement Leave?</strong></p>
+            <p style="margin-bottom: 1rem;">Movement Leave is a short-duration, time-bound leave granted for official or urgent personal work during college hours.</p>
+            <p><strong>Key Rules:</strong></p>
+            <ul style="padding-left: 1.25rem; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+              <li>Applies only to the current day.</li>
+              <li>Requires precise start and end times.</li>
+              <li>Does not deduct from Casual, Medical, or Earned leave balances.</li>
+              <li>Requires HOD, Admin Office, and Principal approvals.</li>
+            </ul>
+          </div>
+        </article>
+      </section>
+    </div>
+  `;
+}
+
 function renderMyLeaves() {
   if (!canSubmitLeave(appState.user)) {
     return `
@@ -655,8 +775,13 @@ function renderMyLeaves() {
                   <td>${escapeHtml(leave.leaveType)}</td>
                   <td>${escapeHtml(leave.substituteTeacher)}</td>
                   <td>${renderProofBadge(leave.proof)}</td>
-                  <td>${formatDisplayDate(leave.startDate)} to ${formatDisplayDate(leave.endDate)}</td>
-                  <td>${leave.days}</td>
+                  <td>
+                    ${leave.leaveType === "Movement Leave"
+                      ? `${formatDisplayDate(leave.startDate)}<br><span style="font-size: 0.82rem; color: var(--ink-soft); font-weight: 500;">${leave.startTime} - ${leave.endTime}</span>`
+                      : `${formatDisplayDate(leave.startDate)} to ${formatDisplayDate(leave.endDate)}`
+                    }
+                  </td>
+                  <td>${leave.leaveType === "Movement Leave" ? "-" : leave.days}</td>
                   <td>${renderStatusChip(getOverallStatus(leave))}</td>
                   <td>${escapeHtml(getTimelineSummary(leave))}</td>
                   <td>
@@ -734,8 +859,13 @@ function renderApprovals() {
                   </td>
                   <td>${escapeHtml(leave.department)}</td>
                   <td>${escapeHtml(leave.leaveType)}</td>
-                  <td>${formatDisplayDate(leave.startDate)} to ${formatDisplayDate(leave.endDate)}</td>
-                  <td>${leave.days}</td>
+                  <td>
+                    ${leave.leaveType === "Movement Leave"
+                      ? `${formatDisplayDate(leave.startDate)}<br><span style="font-size: 0.82rem; color: var(--ink-soft); font-weight: 500;">${leave.startTime} - ${leave.endTime}</span>`
+                      : `${formatDisplayDate(leave.startDate)} to ${formatDisplayDate(leave.endDate)}`
+                    }
+                  </td>
+                  <td>${leave.leaveType === "Movement Leave" ? "-" : leave.days}</td>
                   <td><span class="stage-chip">${escapeHtml(getCurrentStageLabel(leave))}</span></td>
                   <td>${renderStatusChip(getOverallStatus(leave))}</td>
                   <td>${renderProofBadge(leave.proof)}</td>
@@ -786,9 +916,27 @@ function renderApprovalDetail(leave) {
         <div class="detail-box"><strong>Leave ID</strong><span>${leave.leaveCode}</span></div>
         <div class="detail-box"><strong>Leave Type</strong><span>${escapeHtml(leave.leaveType)}</span></div>
         <div class="detail-box"><strong>Department</strong><span>${escapeHtml(leave.department)}</span></div>
-        <div class="detail-box"><strong>Period</strong><span>${formatDisplayDate(leave.startDate)} to ${formatDisplayDate(leave.endDate)}</span></div>
-        <div class="detail-box"><strong>Duration</strong><span>${leave.days} day(s)</span></div>
-        <div class="detail-box"><strong>Substitute Teacher</strong><span>${escapeHtml(leave.substituteTeacher)}</span></div>
+        <div class="detail-box">
+          <strong>Period</strong>
+          <span>
+            ${leave.leaveType === "Movement Leave"
+              ? `${formatDisplayDate(leave.startDate)}`
+              : `${formatDisplayDate(leave.startDate)} to ${formatDisplayDate(leave.endDate)}`
+            }
+          </span>
+        </div>
+        <div class="detail-box">
+          <strong>${leave.leaveType === "Movement Leave" ? "Time Range" : "Duration"}</strong>
+          <span>
+            ${leave.leaveType === "Movement Leave"
+              ? `${leave.startTime} - ${leave.endTime}`
+              : `${leave.days} day(s)`
+            }
+          </span>
+        </div>
+        ${leave.leaveType === "Movement Leave" ? "" : `
+          <div class="detail-box"><strong>Substitute Teacher</strong><span>${escapeHtml(leave.substituteTeacher)}</span></div>
+        `}
         <div class="detail-box"><strong>Last Updated</strong><span>${formatDisplayDate(leave.lastUpdated)}</span></div>
       </div>
       <div class="detail-two-column">
@@ -1332,6 +1480,12 @@ async function handleSubmit(event) {
     const data = new FormData(form);
 
     try {
+      const username = String(data.get("username") || "").trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(username)) {
+        throw new Error("Please enter a valid email address.");
+      }
+
       appState.loading = true;
       render();
       const result = await apiRequest("/api/auth/register", {
@@ -1339,7 +1493,7 @@ async function handleSubmit(event) {
         auth: false,
         body: {
           name: String(data.get("name") || "").trim(),
-          username: String(data.get("username") || "").trim(),
+          username: username,
           password: String(data.get("password") || ""),
           role: String(data.get("role") || ""),
           department: String(data.get("department") || "").trim(),
@@ -1380,6 +1534,35 @@ async function handleSubmit(event) {
 
       appState.tab = "my-leaves";
       setMessage("success", "Leave request submitted successfully.");
+      await loadSession();
+    } catch (error) {
+      setMessage("error", error.message);
+      render();
+    }
+  }
+
+  if (form.id === "movement-form") {
+    event.preventDefault();
+    const data = new FormData(form);
+
+    try {
+      const proof = await readOptionalProofFile(data.get("proofFile"));
+      const todayStr = new Date().toISOString().slice(0, 10);
+      await apiRequest("/api/leaves", {
+        method: "POST",
+        body: {
+          leaveType: "Movement Leave",
+          startDate: todayStr,
+          endDate: todayStr,
+          startTime: String(data.get("startTime") || ""),
+          endTime: String(data.get("endTime") || ""),
+          reason: String(data.get("reason") || "").trim(),
+          proof
+        }
+      });
+
+      appState.tab = "my-leaves";
+      setMessage("success", "Movement Leave request submitted successfully.");
       await loadSession();
     } catch (error) {
       setMessage("error", error.message);
@@ -1609,6 +1792,11 @@ function getCurrentTabMeta() {
       title: "Create a New Leave Request",
       description: ""
     },
+    "movement-leave": {
+      section: "Movement Leave",
+      title: "Create a Movement Leave Request",
+      description: ""
+    },
     "my-leaves": {
       section: "Leave Register",
       title: "Track Your Leave Records",
@@ -1639,6 +1827,7 @@ function getTabsForUser(user) {
 
   if (canSubmitLeave(user)) {
     tabs.push({ id: "apply", label: "Apply Leave" });
+    tabs.push({ id: "movement-leave", label: "Movement Leave" });
     tabs.push({ id: "my-leaves", label: "My Leaves" });
   }
 
@@ -1881,7 +2070,11 @@ function buildFacultySummary() {
     ],
     highlights: [
       `${counts.approved} request(s) are fully approved and ${counts.pending} request(s) are still in progress.`,
-      `Latest request ${latest.leaveCode} covers ${formatDisplayDate(latest.startDate)} to ${formatDisplayDate(latest.endDate)} for ${latest.leaveType}.`,
+      `Latest request ${latest.leaveCode} covers ${
+        latest.leaveType === "Movement Leave"
+          ? `${formatDisplayDate(latest.startDate)} (${latest.startTime} - ${latest.endTime})`
+          : `${formatDisplayDate(latest.startDate)} to ${formatDisplayDate(latest.endDate)}`
+      } for ${latest.leaveType}.`,
       `${lowestBalance.label} is the tightest balance with ${lowestBalance.remaining} day(s) remaining.`
     ],
     watchItems: [
@@ -1898,7 +2091,7 @@ function buildFacultySummary() {
         subtitle: latest.leaveCode,
         lines: [
           `Status: ${getOverallStatus(latest)}`,
-          `Substitute: ${latest.substituteTeacher}`,
+          latest.leaveType === "Movement Leave" ? `Time: ${latest.startTime} - ${latest.endTime}` : `Substitute: ${latest.substituteTeacher}`,
           `Reason: ${shortenText(latest.reason, 92)}`
         ]
       },

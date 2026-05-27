@@ -96,6 +96,11 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ error: "Please complete all registration fields." });
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedUsername)) {
+      return res.status(400).json({ error: "Please enter a valid email address to register." });
+    }
+
     if (!["faculty", "hod", "admin", "principal"].includes(normalizedRole)) {
       return res.status(400).json({ error: "Please choose a valid role." });
     }
@@ -111,7 +116,7 @@ app.post("/api/auth/register", async (req, res) => {
 
     const existing = await findUserById(normalizedUsername);
     if (existing) {
-      return res.status(409).json({ error: "This Gmail is already registered." });
+      return res.status(409).json({ error: "This College Email ID is already registered." });
     }
 
     const normalizedDepartment = normalizeDepartmentName(trimmedDepartment);
@@ -167,11 +172,11 @@ app.post("/api/auth/login", async (req, res) => {
     const user = await findUserById(normalizedUsername);
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid Gmail or password." });
+      return res.status(401).json({ error: "Invalid College Email ID or password." });
     }
 
     if (!verifyPassword(String(password || ""), user.passwordSalt, user.passwordHash)) {
-      return res.status(401).json({ error: "Invalid Gmail or password." });
+      return res.status(401).json({ error: "Invalid College Email ID or password." });
     }
 
     const token = createSession(user.id);
@@ -221,12 +226,19 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
       proof
     } = req.body || {};
 
-    if (!LEAVE_TYPES.includes(String(leaveType || ""))) {
+    const allowedLeaveTypes = [...LEAVE_TYPES, "Movement Leave"];
+    if (!allowedLeaveTypes.includes(String(leaveType || ""))) {
       return res.status(400).json({ error: "Please choose a valid leave type." });
     }
 
-    if (!startDate || !endDate || !reason || !substituteTeacher) {
-      return res.status(400).json({ error: "Please complete all leave application fields." });
+    if (leaveType === "Movement Leave") {
+      if (!startDate || !reason) {
+        return res.status(400).json({ error: "Please complete all leave application fields." });
+      }
+    } else {
+      if (!startDate || !endDate || !reason || !substituteTeacher) {
+        return res.status(400).json({ error: "Please complete all leave application fields." });
+      }
     }
 
     let proofAttachment = null;
@@ -236,15 +248,18 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    const days = calculateLeaveDays(String(startDate), String(endDate));
-    if (days <= 0) {
-      return res.status(400).json({ error: "End date must be the same as or after the start date." });
-    }
+    let days = 0;
+    if (leaveType !== "Movement Leave") {
+      days = calculateLeaveDays(String(startDate), String(endDate));
+      if (days <= 0) {
+        return res.status(400).json({ error: "End date must be the same as or after the start date." });
+      }
 
-    const entitlement = req.user.leaveEntitlement || {};
-    const remaining = await getRemainingBalance(req.user.id, String(leaveType), entitlement);
-    if (days > remaining) {
-      return res.status(400).json({ error: `Insufficient remaining balance for ${leaveType}.` });
+      const entitlement = req.user.leaveEntitlement || {};
+      const remaining = await getRemainingBalance(req.user.id, String(leaveType), entitlement);
+      if (days > remaining) {
+        return res.status(400).json({ error: `Insufficient remaining balance for ${leaveType}.` });
+      }
     }
 
     const today = getToday();
@@ -257,7 +272,7 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    const leave = await createLeaveRecord({
+    const leaveData = {
       id: leaveId,
       leaveCode: createLeaveCode(),
       applicantId: req.user.id,
@@ -265,10 +280,10 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
       applicantRole: req.user.role,
       department: req.user.department,
       designation: req.user.designation,
-      substituteTeacher: String(substituteTeacher).trim(),
+      substituteTeacher: leaveType === "Movement Leave" ? "N/A" : String(substituteTeacher).trim(),
       leaveType: String(leaveType),
       startDate: String(startDate),
-      endDate: String(endDate),
+      endDate: leaveType === "Movement Leave" ? String(startDate) : String(endDate),
       days,
       reason: String(reason).trim(),
       proof: storedProof,
@@ -287,7 +302,56 @@ app.post("/api/leaves", requireAuth, async (req, res) => {
         : createPendingStage("hod"),
       stage2: createPendingStage("admin"),
       stage3: createPendingStage("principal")
-    });
+    };
+
+    if (leaveType === "Movement Leave") {
+      leaveData.startTime = String(req.body.startTime || "");
+      leaveData.endTime = String(req.body.endTime || "");
+    }
+
+    const leave = await createLeaveRecord(leaveData);
+
+    // Dispatch background email notifications to HOD, Admins, and Principals
+    listUsers().then(async (users) => {
+      const emailRecipients = [];
+
+      // 1. Department HOD
+      const deptHod = users.find(u => u.role === "hod" && u.normalizedDepartment === normalizeDepartmentName(req.user.department));
+      if (deptHod && deptHod.username && deptHod.username !== req.user.username) {
+        emailRecipients.push(deptHod.username);
+      }
+
+      // 2. Admin Office users
+      const admins = users.filter(u => u.role === "admin");
+      admins.forEach(admin => {
+        if (admin.username) emailRecipients.push(admin.username);
+      });
+
+      // 3. Principal users
+      const principals = users.filter(u => u.role === "principal");
+      principals.forEach(principal => {
+        if (principal.username) emailRecipients.push(principal.username);
+      });
+
+      // Dedup and dispatch
+      const uniqueEmails = [...new Set(emailRecipients)];
+      const emailService = require("./emailService");
+      
+      uniqueEmails.forEach(email => {
+        emailService.sendNewLeaveNotification(
+          email,
+          req.user.name,
+          req.user.department,
+          req.user.designation,
+          leaveType,
+          startDate,
+          leaveType === "Movement Leave" ? startDate : endDate,
+          reason,
+          substituteTeacher,
+          db
+        ).catch(err => console.error(`[SMTP] Error dispatching new leave notification to ${email}:`, err));
+      });
+    }).catch(err => console.error("[SMTP] Error looking up notification recipients:", err));
 
     return res.status(201).json({ leave: serializeLeave(leave) });
   } catch (error) {
@@ -373,6 +437,24 @@ app.post("/api/leaves/:id/decision", requireAuth, async (req, res) => {
 
     leave.lastUpdated = today;
     const savedLeave = await saveLeaveRecord(leave);
+
+    // Asynchronously dispatch background status update notification upon final outcome
+    const overallStatus = getOverallStatus(savedLeave);
+    if (overallStatus === "Approved" || overallStatus === "Rejected") {
+      findUserById(savedLeave.applicantId).then(faculty => {
+        if (faculty && faculty.username) {
+          const emailService = require("./emailService");
+          emailService.sendLeaveStatusNotification(
+            faculty.username,
+            faculty.name,
+            overallStatus,
+            savedLeave,
+            db
+          ).catch(err => console.error(`[SMTP] Error dispatching status update notification to ${faculty.username}:`, err));
+        }
+      }).catch(err => console.error("[SMTP] Error looking up faculty member for status update:", err));
+    }
+
     return res.json({ leave: serializeLeave(savedLeave) });
   } catch (error) {
     return res.status(500).json({ error: "The decision could not be recorded." });
@@ -452,7 +534,9 @@ function serializeLeave(leave) {
     certificateNo: leave.certificateNo,
     stage1: serializeStage(leave.stage1),
     stage2: serializeStage(leave.stage2),
-    stage3: serializeStage(leave.stage3)
+    stage3: serializeStage(leave.stage3),
+    startTime: leave.startTime || "",
+    endTime: leave.endTime || ""
   };
 }
 
@@ -773,6 +857,8 @@ async function createLeaveRecord(data) {
     stage1: data.stage1,
     stage2: data.stage2,
     stage3: data.stage3,
+    startTime: data.startTime || "",
+    endTime: data.endTime || "",
     createdAt: now,
     createdAtMs: Date.now(),
     updatedAt: now,
@@ -808,6 +894,8 @@ async function saveLeaveRecord(leave) {
     stage1: leave.stage1,
     stage2: leave.stage2,
     stage3: leave.stage3,
+    startTime: leave.startTime || "",
+    endTime: leave.endTime || "",
     createdAt: leave.createdAt || now,
     createdAtMs: leave.createdAtMs || Date.now(),
     updatedAt: now,
