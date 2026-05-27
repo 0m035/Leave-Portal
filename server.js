@@ -979,13 +979,17 @@ function initializeFirebaseServices() {
 async function start() {
   try {
     initializeFirebaseServices();
-    app.listen(PORT, () => {
-      console.log(`Faculty leave management system running on http://localhost:${PORT}`);
-      console.log(`Firebase Firestore connected for project: ${firebaseConfig.projectId || "default"}`);
-      if (storage) {
-        console.log(`Firebase Storage bucket configured: ${firebaseConfig.storageBucket}`);
-      }
-    });
+    if (process.env.VERCEL) {
+      console.log("Firebase services initialized successfully. Running in Vercel Serverless environment.");
+    } else {
+      app.listen(PORT, () => {
+        console.log(`Faculty leave management system running on http://localhost:${PORT}`);
+        console.log(`Firebase Firestore connected for project: ${firebaseConfig.projectId || "default"}`);
+        if (storage) {
+          console.log(`Firebase Storage bucket configured: ${firebaseConfig.storageBucket}`);
+        }
+      });
+    }
   } catch (error) {
     console.error("Failed to start the server.", error);
     process.exit(1);
@@ -993,6 +997,8 @@ async function start() {
 }
 
 start();
+
+module.exports = app;
 
 /* ── Environment File Loader ─────────────────────────────────────── */
 
