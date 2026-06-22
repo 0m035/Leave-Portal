@@ -2,39 +2,18 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const express = require("express");
-const { initializeApp } = require("firebase/app");
-const {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  collection,
-  getDocs,
-  query,
-  where
-} = require("firebase/firestore");
-const {
-  getStorage,
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject
-} = require("firebase/storage");
+const admin = require("firebase-admin");
+
 
 loadEnvFile();
 
 const PORT = Number(process.env.PORT || 3000);
 
 const firebaseConfig = {
-  apiKey: cleanEnvValue(process.env.FIREBASE_API_KEY || ""),
-  authDomain: cleanEnvValue(process.env.FIREBASE_AUTH_DOMAIN || ""),
   projectId: cleanEnvValue(process.env.FIREBASE_PROJECT_ID || ""),
-  storageBucket: cleanEnvValue(process.env.FIREBASE_STORAGE_BUCKET || ""),
-  messagingSenderId: cleanEnvValue(process.env.FIREBASE_MESSAGING_SENDER_ID || ""),
-  appId: cleanEnvValue(process.env.FIREBASE_APP_ID || ""),
-  measurementId: cleanEnvValue(process.env.FIREBASE_MEASUREMENT_ID || "")
+  storageBucket: cleanEnvValue(process.env.FIREBASE_STORAGE_BUCKET || "")
 };
+
 
 const app = express();
 const sessionStore = new Map();
@@ -628,27 +607,70 @@ async function storeProofAttachment(leaveId, proof) {
     return null;
   }
 
-  if (!storage) {
-    throw new Error("Proof uploads require Firebase Storage to be configured.");
+  // ── Attempt Firebase Storage upload ──────────────────────────────────────
+  if (storage) {
+    try {
+      const base64 = String(proof.dataUrl || "").split(",")[1] || "";
+      const buffer = Buffer.from(base64, "base64");
+      const safeFileName = sanitizeFileName(proof.fileName);
+      const storagePath = `leave-proofs/${leaveId}/${Date.now()}-${safeFileName}`;
+      const file = storage.file(storagePath);
+
+      await file.save(buffer, {
+        metadata: { contentType: proof.mimeType },
+        resumable: false
+      });
+
+      // Try to make publicly accessible (may fail if uniform bucket-level access is enabled)
+      let downloadUrl = null;
+      try {
+        await file.makePublic();
+        downloadUrl = `https://storage.googleapis.com/${storage.name}/${storagePath}`;
+      } catch (aclErr) {
+        // Uniform bucket-level access is on — generate a signed URL instead
+        console.warn(`[Storage] makePublic() failed (uniform bucket access?): ${aclErr.message}`);
+        try {
+          const [signedUrl] = await file.getSignedUrl({
+            action: "read",
+            expires: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 days
+          });
+          downloadUrl = signedUrl;
+        } catch (signErr) {
+          // Cannot get any public URL — fall back to embedded dataUrl
+          console.warn(`[Storage] Signed URL generation failed: ${signErr.message}. Falling back to dataUrl storage.`);
+          downloadUrl = null;
+        }
+      }
+
+      if (downloadUrl) {
+        console.log(`[Storage] ✅ Proof uploaded → ${storagePath}`);
+        return {
+          fileName: proof.fileName,
+          mimeType: proof.mimeType,
+          size: proof.size,
+          storagePath,
+          downloadUrl
+        };
+      }
+
+      // If we couldn't get a URL, delete the orphaned file and fall through to dataUrl fallback
+      try { await file.delete(); } catch (_) {}
+    } catch (uploadErr) {
+      console.error(`[Storage] Upload failed: ${uploadErr.message}. Falling back to dataUrl storage.`);
+    }
+  } else {
+    console.warn("[Storage] Firebase Storage not configured. Storing proof as embedded dataUrl in Firestore.");
   }
 
-  const base64 = String(proof.dataUrl || "").split(",")[1] || "";
-  const buffer = Buffer.from(base64, "base64");
-  const safeFileName = sanitizeFileName(proof.fileName);
-  const storagePath = `leave-proofs/${leaveId}/${Date.now()}-${safeFileName}`;
-  const storageRef = ref(storage, storagePath);
-
-  await uploadBytes(storageRef, buffer, {
-    contentType: proof.mimeType
-  });
-
-  const downloadUrl = await getDownloadURL(storageRef);
+  // ── Fallback: store base64 dataUrl directly in Firestore ─────────────────
+  // Leave submission always succeeds even without a working Storage bucket.
   return {
     fileName: proof.fileName,
     mimeType: proof.mimeType,
     size: proof.size,
-    storagePath,
-    downloadUrl
+    storagePath: null,
+    dataUrl: proof.dataUrl,       // embedded in Firestore document
+    downloadUrl: proof.dataUrl    // client uses this to open/download proof
   };
 }
 
@@ -658,7 +680,7 @@ async function deleteProofAttachment(proof) {
   }
 
   try {
-    await deleteObject(ref(storage, proof.storagePath));
+    await storage.file(proof.storagePath).delete();
   } catch (_error) {
     // Keep leave deletion resilient even if the storage object was already removed.
   }
@@ -828,7 +850,7 @@ async function createUserRecord(data) {
     updatedAt: now
   };
 
-  await setDoc(doc(db, "users", data.id), record);
+  await db.collection("users").doc(data.id).set(record);
   return {
     id: data.id,
     ...record
@@ -865,7 +887,7 @@ async function createLeaveRecord(data) {
     updatedAtMs: Date.now()
   };
 
-  await setDoc(doc(db, "leaves", data.id), record);
+  await db.collection("leaves").doc(data.id).set(record);
   return {
     id: data.id,
     ...record
@@ -902,7 +924,7 @@ async function saveLeaveRecord(leave) {
     updatedAtMs: Date.now()
   };
 
-  await setDoc(doc(db, "leaves", leave.id), record);
+  await db.collection("leaves").doc(leave.id).set(record);
   return {
     id: leave.id,
     ...record
@@ -910,41 +932,39 @@ async function saveLeaveRecord(leave) {
 }
 
 async function deleteLeaveRecord(leaveId) {
-  await deleteDoc(doc(db, "leaves", leaveId));
+  await db.collection("leaves").doc(leaveId).delete();
 }
 
 async function findUserById(userId) {
-  const snapshot = await getDoc(doc(db, "users", userId));
-  if (!snapshot.exists()) {
+  const snapshot = await db.collection("users").doc(userId).get();
+  if (!snapshot.exists) {
     return null;
   }
   return { id: snapshot.id, ...snapshot.data() };
 }
 
 async function findLeaveById(leaveId) {
-  const snapshot = await getDoc(doc(db, "leaves", leaveId));
-  if (!snapshot.exists()) {
+  const snapshot = await db.collection("leaves").doc(leaveId).get();
+  if (!snapshot.exists) {
     return null;
   }
   return { id: snapshot.id, ...snapshot.data() };
 }
 
 async function listUsers() {
-  const snapshot = await getDocs(collection(db, "users"));
+  const snapshot = await db.collection("users").get();
   return snapshot.docs.map(mapSnapshot);
 }
 
 async function listLeaves() {
-  const snapshot = await getDocs(collection(db, "leaves"));
+  const snapshot = await db.collection("leaves").get();
   return snapshot.docs.map(mapSnapshot);
 }
 
 async function listLeavesForApplicant(applicantId) {
-  const q = query(
-    collection(db, "leaves"),
-    where("applicantId", "==", applicantId)
-  );
-  const snapshot = await getDocs(q);
+  const snapshot = await db.collection("leaves")
+    .where("applicantId", "==", applicantId)
+    .get();
   return snapshot.docs.map(mapSnapshot);
 }
 
@@ -971,9 +991,33 @@ function sortLeavesByCreatedAtDesc(a, b) {
 /* ── Firebase Initialization ─────────────────────────────────────── */
 
 function initializeFirebaseServices() {
-  const firebaseApp = initializeApp(firebaseConfig);
-  db = getFirestore(firebaseApp);
-  storage = firebaseConfig.storageBucket ? getStorage(firebaseApp) : null;
+  const clientEmail = cleanEnvValue(process.env.FIREBASE_CLIENT_EMAIL || "");
+  const rawPrivateKey = cleanEnvValue(process.env.FIREBASE_PRIVATE_KEY || "");
+  const privateKey = rawPrivateKey.replace(/\\n/g, "\n");
+
+  let credential;
+  if (clientEmail && privateKey) {
+    // Full service account — bypasses all Firestore security rules
+    credential = admin.credential.cert({
+      projectId: firebaseConfig.projectId,
+      clientEmail,
+      privateKey
+    });
+    console.log("Firebase Admin: using service account credentials.");
+  } else {
+    // Fallback: applicationDefault (requires GOOGLE_APPLICATION_CREDENTIALS env var
+    // or gcloud CLI login). Will work on GCP / Cloud Run automatically.
+    credential = admin.credential.applicationDefault();
+    console.log("Firebase Admin: using applicationDefault credentials.");
+  }
+
+  admin.initializeApp({
+    credential,
+    storageBucket: firebaseConfig.storageBucket
+  });
+
+  db = admin.firestore();
+  storage = firebaseConfig.storageBucket ? admin.storage().bucket() : null;
 }
 
 async function start() {
