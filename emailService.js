@@ -29,8 +29,8 @@ const crypto         = require("crypto");
 async function logNotificationToFirestore(db, notifId, receiverEmail, subject, status, errorLog) {
   if (!db) return;
   try {
-    const { doc, setDoc } = require("firebase/firestore");
-    await setDoc(doc(db, "notifications", notifId), {
+    // Use Admin SDK — db is already a firebase-admin Firestore instance
+    await db.collection("notifications").doc(notifId).set({
       receiver_email: receiverEmail,
       subject,
       status,                              // "PENDING" | "SENT" | "FAILED"

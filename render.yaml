@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: apcoer-leave-portal
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      # ── Firebase Admin SDK ────────────────────────────────────────────────────
+      - key: FIREBASE_PROJECT_ID
+        sync: false          # Set manually in Render dashboard
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false          # Paste the full private key with literal \n characters
+
+      # ── Gmail SMTP (Nodemailer) ───────────────────────────────────────────────
+      - key: MAIL_HOST
+        value: smtp.gmail.com
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_USER
+        sync: false          # Your Gmail address
+      - key: MAIL_PASSWORD
+        sync: false          # 16-char App Password — NO spaces (e.g. abcdabcdabcdabcd)
+      - key: MAIL_FROM
+        sync: false          # Same as MAIL_USER
+
+      # ── Portal URL ────────────────────────────────────────────────────────────
+      - key: PORTAL_URL
+        sync: false          # Set to your Render URL e.g. https://apcoer-leave-portal.onrender.com

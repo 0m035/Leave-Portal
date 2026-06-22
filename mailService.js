@@ -33,11 +33,21 @@ let _transporter = null;
 function getTransporter() {
   if (_transporter) return _transporter;
 
-  const host  = process.env.MAIL_HOST     || process.env.SMTP_HOST;
-  const port  = process.env.MAIL_PORT     || process.env.SMTP_PORT     || "587";
-  const user  = process.env.MAIL_USER     || process.env.SMTP_USER;
-  const pass  = process.env.MAIL_PASSWORD || process.env.SMTP_PASS;
-  const from  = process.env.MAIL_FROM     || process.env.SMTP_FROM     || "no-reply@apcoer.edu.in";
+  const host  = (process.env.MAIL_HOST     || process.env.SMTP_HOST     || "").trim();
+  const port  = (process.env.MAIL_PORT     || process.env.SMTP_PORT     || "587").trim();
+  const user  = (process.env.MAIL_USER     || process.env.SMTP_USER     || "").trim();
+  // Trim whitespace — Render dashboard may add accidental leading/trailing spaces
+  const pass  = (process.env.MAIL_PASSWORD || process.env.SMTP_PASS     || "").trim();
+  const from  = (process.env.MAIL_FROM     || process.env.SMTP_FROM     || "no-reply@apcoer.edu.in").trim();
+
+  // ── Startup diagnostics (visible in Render logs) ────────────────────────────
+  console.log("[MailService] 🔍 SMTP Configuration Check:");
+  console.log(`  MAIL_HOST     : ${host     || "❌ NOT SET"}`);
+  console.log(`  MAIL_PORT     : ${port     || "❌ NOT SET"}`);
+  console.log(`  MAIL_USER     : ${user     || "❌ NOT SET"}`);
+  console.log(`  MAIL_PASSWORD : ${pass     ? `✅ SET (${pass.length} chars)` : "❌ NOT SET"}`);
+  console.log(`  MAIL_FROM     : ${from     || "❌ NOT SET"}`);
+  console.log(`  PORTAL_URL    : ${process.env.PORTAL_URL || "⚠️  not set — email links will use localhost:3000"}`);
 
   const isReady = Boolean(host && user && pass);
 
@@ -53,9 +63,15 @@ function getTransporter() {
       }
     });
 
-    console.log(`[MailService] ✅ Gmail SMTP transporter initialized → ${host}:${port} (user: ${user})`);
+    console.log(`[MailService] ✅ Gmail SMTP transporter ready → ${host}:${port} (from: ${from})`);
   } else {
-    // Development / demo fallback — prints mail content to console instead of sending
+    // Fallback mock — prints mail content to console instead of sending
+    const missing = [
+      !host ? "MAIL_HOST" : null,
+      !user ? "MAIL_USER" : null,
+      !pass ? "MAIL_PASSWORD" : null
+    ].filter(Boolean).join(", ");
+
     _transporter = {
       sendMail: async (opts) => {
         const msgId = `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -66,15 +82,15 @@ function getTransporter() {
         console.log(`  FROM    : ${opts.from || from}`);
         console.log(`  SUBJECT : ${opts.subject}`);
         console.log("  ─────────────────────────────────────────────────────");
-        console.log("  [HTML body omitted in mock mode — configure SMTP to send real emails]");
+        console.log("  [HTML body omitted — configure SMTP env vars to send real emails]");
         console.log("╚══════════════════════════════════════════════════════╝\n");
         return { messageId: msgId, response: "250 Mock OK" };
       }
     };
 
     console.warn(
-      "[MailService] ⚠️  SMTP credentials missing (MAIL_USER / MAIL_PASSWORD / MAIL_HOST). " +
-      "Running in MOCK mode — no real emails will be sent."
+      `[MailService] ⚠️  RUNNING IN MOCK MODE — Missing env vars: ${missing}. ` +
+      "Set these in your Render dashboard (Environment tab) to enable real email delivery."
     );
   }
 
