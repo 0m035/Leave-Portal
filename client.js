@@ -251,7 +251,13 @@ function renderLoginForm() {
       </div>
       <div class="field-group">
         <label for="login-password">Password</label>
-        <input id="login-password" name="password" type="password" placeholder="Enter your password" required />
+        <div class="password-wrapper">
+          <input id="login-password" name="password" type="password" placeholder="Enter your password" required />
+          <button type="button" class="pw-toggle-btn" data-action="toggle-password" data-target="login-password" aria-label="Show password" title="Show password">
+            <svg class="eye-icon eye-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-icon eye-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
       </div>
       <div class="auth-actions-row">
         <button type="button" class="button-secondary" data-action="set-auth-mode" data-mode="register">New Registration</button>
@@ -290,7 +296,13 @@ function renderRegisterForm() {
         </div>
         <div class="field-group">
           <label for="register-password">Password</label>
-          <input id="register-password" name="password" type="password" placeholder="Min 6 chars, no special characters" required />
+          <div class="password-wrapper">
+            <input id="register-password" name="password" type="password" placeholder="Min 6 chars, no special characters" required />
+            <button type="button" class="pw-toggle-btn" data-action="toggle-password" data-target="register-password" aria-label="Show password" title="Show password">
+              <svg class="eye-icon eye-show" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-icon eye-hide" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
         </div>
       </div>
       <div class="field-row">
@@ -1595,6 +1607,21 @@ async function handleClick(event) {
 
   // fill-demo action removed
 
+  if (action === "toggle-password") {
+    const targetId = button.dataset.target;
+    const input = document.getElementById(targetId);
+    if (!input) return;
+    const isHidden = input.type === "password";
+    input.type = isHidden ? "text" : "password";
+    const eyeShow = button.querySelector(".eye-show");
+    const eyeHide = button.querySelector(".eye-hide");
+    if (eyeShow) eyeShow.style.display = isHidden ? "none" : "";
+    if (eyeHide) eyeHide.style.display = isHidden ? "" : "none";
+    button.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+    button.setAttribute("title", isHidden ? "Hide password" : "Show password");
+    return;
+  }
+
   if (!appState.user && action !== "set-auth-mode") {
     return;
   }
@@ -2449,10 +2476,17 @@ function readFileAsDataUrl(file) {
 }
 
 function openProofAttachment(proof) {
+  // Use downloadUrl (Firebase Storage URL) first, fall back to embedded base64 dataUrl
+  const url = proof.downloadUrl || proof.dataUrl || "";
+  if (!url) {
+    alert("Proof file is not available.");
+    return;
+  }
+
   const link = document.createElement("a");
-  link.href = proof.dataUrl;
+  link.href = url;
   link.target = "_blank";
-  link.rel = "noopener";
+  link.rel = "noopener noreferrer";
   link.download = proof.fileName || "leave-proof";
   document.body.appendChild(link);
   link.click();
